@@ -1,9 +1,12 @@
 # Importamos la librería osmnx y le ponemos el alias 'ox' que usaremos para descargar los mapas y datos de calles.
 # Importamos networkx con el alias 'nx' que usaremos para el manejo de grafos y el algoritmo de Dijkstra.
 # Importamos matplotlib.pyplot con el alias 'plt' que usaremos para mostrar el mapa en una ventana.
+# Importamos 'heapq' (cola de prioridad). Es la herramienta que usa Dijkstra para saber cuál es el siguiente nodo más cercano que debe visitar.
+
 import osmnx as ox
 import networkx as nx
 import matplotlib.pyplot as plt
+import heapq
 
 # Aquí hago una división ya que lo siguiente se usa para la interfaz gráfica
 # Importamos tkinter con el alias 'tk' que usaremos para crear ventanas e interfaces gráficas.
@@ -28,7 +31,7 @@ class VentanaCoordenadas:
         # Creamos una etiqueta (Label) para el título "Punto de Origen" y 'grid' es el sistema que usamos para posicionar componentes en filas (row) y columnas (column)
         tk.Label(ventana_raiz, text="Punto de Origen", font=("Arial", 12, "bold")).grid(row=0, column=0, columnspan=2, pady=(10, 5))
         
-        # Creamos la etiqueta "Latitud:" y 'sticky="e"' la alinea a la derecha
+        # Creamos la etiqueta "Latitud:". 'sticky="e"' la alinea a la derecha
         tk.Label(ventana_raiz, text="Latitud:").grid(row=1, column=0, padx=5, sticky="e")
         # Creamos la caja de texto (Entry) para la latitud de origen
         self.caja_lat_origen = tk.Entry(ventana_raiz, width=25)
@@ -121,8 +124,110 @@ class VentanaCoordenadas:
         self.ventana.wait_window()
         # Una vez que la ventana se cierra, devolvemos el diccionario en 'self.coordenadas' y listo, tenemos los datos para el análisis
         return self.coordenadas
+    
+def dijkstra_iterativo(grafo, nodo_origen, nodo_destino, atributo_peso):
 
-# Metemos todo nuestro código de análisis en una función que acepta el diccionario 'coordenadas' como argumento para traducir la GUI del código principal
+    # Guardaremos la distancia más corta desde el origen a CADA nodo, al inicio, todas son Infinitas, excepto la del origen (que es 0)
+    distancias = {nodo: float('inf') for nodo in grafo.nodes()}
+    distancias[nodo_origen] = 0
+    
+    # Guardaremos el "padre" o "predecesor" de cada nodo en el camino más corto. Al inicio, todos son None
+    predecesores = {nodo: None for nodo in grafo.nodes()}
+    
+    # Esta es la Cola de Prioridad, siempre nos dará el nodo no visitado con la menor distancia
+    # Guardamos tuplas de distancia, nodo
+    cola_prioridad = [(0, nodo_origen)]
+    
+    # Un conjunto para guardar los nodos que ya hemos visitado y de los que ya procesamos todos sus vecinos
+    nodos_visitados = set()
+    
+    # Un contador para imprimir las iteraciones, que mientras más lejos estemos, más grande será
+    iteracion = 0
+    
+    print("\nITERACIONES DEL ALGORITMO DIJKSTRA\n")
+    print(f"Buscando ruta de {nodo_origen} a {nodo_destino}...")
+    print(f"Peso a minimizar: {atributo_peso}\n")
+
+    # Mientras haya nodos en nuestra cola de prioridad, hacemos lo siguiente
+    while cola_prioridad:
+        
+        # Sacamos el nodo con la distancia más pequeña de la cola y heapq.heappop() se encarga de esto automáticamente, por eso usamos 'heapq' arriba
+        distancia_actual, nodo_actual = heapq.heappop(cola_prioridad)
+        
+        # Aquí imprimimos información de la iteración actual en la consola
+        iteracion += 1
+        print(f"--- Iteración {iteracion} ---")
+        print(f"Nodo actual (más cercano y no visitado): {nodo_actual}")
+        print(f"Distancia conocida para llegar a él: {distancia_actual:.2f} (segundos)")
+        
+        # Si ya hemos visitado este nodo, lo ignoramos y seguimos con el siguiente en la cola
+        if nodo_actual in nodos_visitados:
+            print("Este nodo ya fue visitado")
+            continue
+            
+        # Marcamos el nodo actual como visitado para no procesarlo de nuevo
+        nodos_visitados.add(nodo_actual)
+        
+        # Si el nodo actual es nuestro destino señalamos que lo encontramos y salimos del bucle
+        # Podemos detenernos porque Dijkstra garantiza que la primera vez que visitamos el nodo destino, es por el camino más corto 
+        if nodo_actual == nodo_destino:
+            print(f"\nNodo destino {nodo_destino} encontrado, hemos terminado la búsqueda")
+            break
+            
+        print("  Revisando vecinos")
+        # 'grafo.neighbors(nodo_actual)' nos da todos los nodos conectados a él (sus vecinos)
+        for vecino in grafo.neighbors(nodo_actual):
+
+            # Un grafo de OSMnx es un 'MultiDiGraph', puede haber varias aristas (calles) entre dos nodos (intersecciones) y debemos encontrar la que tenga el menor peso (tiempo).
+            datos_multiples_aristas = grafo.get_edge_data(nodo_actual, vecino)
+            if not datos_multiples_aristas:
+                continue # Si no hay aristas, saltamos al siguiente vecino, aunque esto no debería pasar en un grafo bien formado
+                
+            # Buscamos la arista con el menor tiempo de viaje (atributo_peso)
+            arista_optima = min(datos_multiples_aristas.values(), key=lambda x: x[atributo_peso])
+            peso_arista = arista_optima[atributo_peso]
+            
+            # Calculamos la nueva distancia que será la distancia para llegar a nuestro nodo actual + el peso de la calle para llegar al vecino
+            nueva_distancia = distancia_actual + peso_arista
+            
+            print(f"  +++++++ Vecino: {vecino} (Peso calle: {peso_arista:.2f} s)")
+            
+            # Si esta nueva distancia es MEJOR (más corta) que la
+            # que teníamos registrada para ese vecino...
+            if nueva_distancia < distancias[vecino]:
+                # ¡Actualizamos!
+                print(f"       *Camino mejorado* --Anterior: {distancias[vecino]:.2f}, Nuevo: {nueva_distancia:.2f}--")
+                distancias[vecino] = nueva_distancia
+                predecesores[vecino] = nodo_actual
+                
+                # Y añadimos al vecino a nuestra cola de prioridad
+                # para que sea visitado en el futuro.
+                heapq.heappush(cola_prioridad, (nueva_distancia, vecino))
+            else:
+                print(f"       --Camino no mejorado, la distancia actual es: {distancias[vecino]:.2f}--")
+        print("-" * 22) # Separador
+
+    # Al terminar el bucle, usamos el diccionario 'predecesores' para ir hacia atrás desde el destino hasta el origen, siendo el camino más corto
+    print("\nFinalizando y reconstruyendo el camino más corto")
+    camino = []
+    nodo_camino_actual = nodo_destino
+    
+    # Mientras no lleguemos al inicio (donde el predecesor es 'None') sucede lo siguiente
+    while nodo_camino_actual is not None:
+        camino.append(nodo_camino_actual)
+        nodo_camino_actual = predecesores[nodo_camino_actual]
+
+    # Si el último nodo en nuestro camino no es el origen, esto significa que no se encontró un camino válido
+    if not camino or camino[-1] != nodo_origen:
+        print("ERROR: No se pudo reconstruir el camino. El destino es inalcanzable.")
+        return None
+    
+    # El camino está al revés (destino -> origen), así que lo invertimos para devolverlo en el orden correcto
+    camino_invertido = camino[::-1]
+    print(f"Camino encontrado: {camino_invertido}")
+    return camino_invertido
+
+# Metemos todo nuestro código de análisis en una función que acepta el diccionario "coordenadas" como argumento para traducir la GUI del código principal
 def ejecutar_analisis_ruta(coordenadas):
     # Configuramos OSMnx para que muestre mensajes en la consola y use el caché para no descargar el mapa cada vez que corremos el script y tarde más
     ox.settings.log_console = True
@@ -223,14 +328,18 @@ def ejecutar_analisis_ruta(coordenadas):
         # Buscamos el nodo de fin más cercano 
         nodo_destino = obtener_nodo_mas_cercano(grafo_original_latlon, latitud_destino, longitud_destino)
 
-        # Le pedimos a 'networkx' que encuentre el camino más corto ('shortest_path') a través del grafo usando el algoritmo de Dijkstra
-        # Usamos 'grafo_proyectado_metros' porque tiene los atributos en metros y "weight='tiempo_viaje_segundos'" le dice a Dijkstra que minimice la suma de este atributo, no la distancia
-        ruta_optima_nodos = nx.shortest_path(
+        # Llamamos a nuestra función que imprime cada paso del proceso.
+        ruta_optima_nodos = dijkstra_iterativo(
             grafo_proyectado_metros,
-            source=nodo_origen,
-            target=nodo_destino,
-            weight='tiempo_viaje_segundos'
+            nodo_origen,
+            nodo_destino,
+            'tiempo_viaje_segundos' # Este es el atributo "weight", en este caso, el tiempo de viaje en segundos
         )
+        
+        # Si nuestra función devolvió 'None', significa que no encontró un camino, así que lanzamos el error 'NetworkXNoPath' para que nuestro 'except' de abajo lo atrape
+        if ruta_optima_nodos is None:
+            raise nx.NetworkXNoPath
+        
         print("Mejor ruta calculada exitosamente")
 
     except nx.NetworkXNoPath:
@@ -280,8 +389,8 @@ def ejecutar_analisis_ruta(coordenadas):
             edge_color='#999999',
             bgcolor='k',               
             figsize=(15, 15),
-            show=False,                 
-            close=False                 
+            show=False,               
+            close=False               
         )
         
         # Añadimos un título simple al mapa para una mejor presentación
@@ -303,7 +412,7 @@ def ejecutar_analisis_ruta(coordenadas):
             texto_resumen,                  
             transform=eje.transAxes,        
             fontsize=14,
-            color='black',                 
+            color='black',                  
             verticalalignment='top',        
             bbox=dict(boxstyle='round,pad=0.5', 
                       fc='white',               
